@@ -1,0 +1,81 @@
+name: Tests & Coverage
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  test:
+    name: Unit Tests + JaCoCo Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run tests with coverage
+        run: mvn clean verify -B -Dmaven.test.failure.ignore=false
+
+      - name: Generate JaCoCo report
+        if: always()
+        run: mvn jacoco:report -B
+
+      - name: Publish test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: JUnit Results
+          path: '**/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+
+      - name: JaCoCo coverage report
+        if: always()
+        id: jacoco
+        uses: madrapps/jacoco-report@v1.7.1
+        with:
+          paths: '**/target/site/jacoco/jacoco.xml'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          min-coverage-overall: 100
+          min-coverage-changed-files: 100
+          title: '## Code Coverage Report'
+          update-comment: true
+
+      - name: Coverage gate — fail if below 100%
+        if: always()
+        run: |
+          COVERAGE=${{ steps.jacoco.outputs.coverage-overall }}
+          echo "Overall coverage: ${COVERAGE}%"
+          if (( $(echo "${COVERAGE} < 100" | bc -l) )); then
+            echo "::error::Coverage is ${COVERAGE}%, required 100%"
+            exit 1
+          fi
+
+      - name: Upload JaCoCo report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 30
+
+      - name: Upload Surefire report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-report
+          path: '**/target/surefire-reports/'
+          retention-days: 30
